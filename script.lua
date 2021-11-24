@@ -1,18 +1,54 @@
-local token = "enter your api token here, expires after a couple of hours"
+--_G.token = "token here"
+if not _G.token then return printconsole("[SpotiBot] ERROR: no API token provided",255,0,0) end
 
-
-
+local token = _G.token
+local market = "US"
 local http = game:GetService("HttpService")
 
-local function searchsong(name) -- have to make a custom search because spotify's api never finds the right song
+local function chat(msg)
+    game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg,"All")
+end
+
+local function getmarkets()
+    local req = syn.request({
+        Url = "https://api.spotify.com/v1/markets",
+        Method = "GET",
+        Headers = {
+            ["Content-Type"] = "application/json",
+            ["Accept"] = "application/json",
+            ["Authorization"] = "Bearer " .. token
+        }
+    })
+    print(req.StatusCode)
+    return http:JSONDecode(req.Body)["markets"]
+end
+
+local function changemarket(str)
+    local caps = str:upper()
+    local markets = getmarkets()
+    
+    if table.find(markets,caps) then
+        market = caps
+        chat("Changed market to " .. caps)
+    else
+        chat(caps .. " is not a valid market id.")
+    end
+end
+
+local function searchsong(name)
+    local subbed
     local search
     if name:find("spotify:track:") == true then
         search = name
+    elseif name:find("https\:\/\/open\.spotify.com\/track\/") then
+        local noSi = name:split("?")[1]
+        subbed = noSi:gsub("https\:\/\/open\.spotify.com\/track\/","")
+        search = subbed
     else
         search = http:UrlEncode(name)
     end
     local req = syn.request({
-        Url = "https://api.spotify.com/v1/search?q=" .. search .. "&type=track&market=DE&limit=1&offset=1",
+        Url = "https://api.spotify.com/v1/search?q=" .. search .. "&type=track&market=" .. market .. "&limit=1&offset=1",
         Method = "GET",
         Headers = {
             ["Content-Type"] = "application/json",
@@ -21,13 +57,17 @@ local function searchsong(name) -- have to make a custom search because spotify'
         }
     })
     --return req.Body
+    if subbed then
+        return "spotify:track:" .. subbed
+    end
     if name:find("spotify:track:") then 
         return name
     else
         if http:JSONDecode(req.Body).tracks.items[1] then
             return http:JSONDecode(req.Body).tracks.items[1].uri
         else
-            return nil
+            chat("No song found.")
+            return printconsole("[SpotiBot] ERROR: no track found with query: " .. search,255,0,0)
         end
     end
 end
@@ -92,16 +132,11 @@ local function initqueue(search)
     local searched = searchsong(search)
     if searched then
         print(searched)
-        setclipboard(searched)
         addqueue(searched)
         startplaying()
     else
-        print("invalid search")
+        chat("Invalid search.")
     end
-end
-
-local function chat(msg)
-    game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg,"All")
 end
 
 local function skipsong()
@@ -135,13 +170,13 @@ local function setvolume(vol)
         })
     print(req.Body)
     else
-        print("invalid volume")
+        chat("Invalid volume, must be a percentage.")
     end
 end
 
 local function saycp()
     local req = syn.request({
-        Url = "https://api.spotify.com/v1/me/player/currently-playing?market=DE",
+        Url = "https://api.spotify.com/v1/me/player/currently-playing?market=" .. market,
         Method = "GET",
         Headers = {
             ["Content-Type"] = "application/json",
@@ -159,11 +194,11 @@ end
 
 local function saycmds()
     wait()
-    chat("Current commands: play <spotify:track: or query>, pause, resume, skip, volume, currentlyplaying/cp, togglepublic, ispublic")
+    chat("Current commands: play <spotify:track: or query>, pause, resume, skip, volume, currentlyplaying/cp, togglepublic, ispublic, market")
 end
 local publiccmds = false
 
-local function loadcmds(v) -- father forgive me for i have sinned
+local function loadcmds(v)
     v.Chatted:Connect(function(msg)
         if msg == "#skip" then
             if v == game.Players.LocalPlayer or publiccmds == true then
@@ -197,13 +232,18 @@ local function loadcmds(v) -- father forgive me for i have sinned
         if v == game.Players.LocalPlayer then
             if msg == "#togglepublic" then
                 publiccmds = not publiccmds
-                print("allow usage for others: " .. tostring(publiccmds))
+                task.wait()
+                chat("Allow usage for others: " .. tostring(publiccmds))
             end
             if msg == "#ispublic" then
-                print("is currently public: " .. tostring(publiccmds))
+                chat("Is currently public: " .. tostring(publiccmds))
             end
             if msg == "#rj" then
                 game:GetService("TeleportService"):Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
+            end
+            if msg:sub(1,#"#market ") == "#market " then
+                local selected = msg:sub(#"#market  ",-1)
+                changemarket(selected)
             end
         end
     end)
@@ -213,4 +253,5 @@ for i,v in pairs(game.Players:GetPlayers()) do
    loadcmds(v)
 end
 game.Players.PlayerAdded:Connect(loadcmds)
-chat("SpotiBot V0.8 by quirky anime boy started, type #cmds to begin.") -- remove if youre cringe
+--skipsong()
+chat("SpotiBot V0.8 by quirky anime boy started, type #cmds to begin.") 
